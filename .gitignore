@@ -1,5 +1,13 @@
+# Python sanal ortamları
+venv/
 .venv/
+
+# Python önbellek dosyaları
 __pycache__/
 *.pyc
+
+# Gizli ortam değişkenleri
 .env
+
+# Streamlit yerel ayarları
 .streamlit/
