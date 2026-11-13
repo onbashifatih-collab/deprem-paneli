@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from html import escape
 from veri_cek import deprem_verilerini_getir
 
 # 1. Sayfa Konfigürasyonu
@@ -13,6 +14,27 @@ st.set_page_config(
 # 2. Ultra-Modern UI / CSS ve Gizlilik Stilleri
 st.markdown("""
     <style>
+        .stApp { background: #080e19 !important; }
+        section[data-testid="stSidebar"] { background: #0b1421; border-right: 1px solid #263649; }
+        .block-container { max-width: 1600px; padding-top: 2.3rem !important; }
+        .hero { position: relative; overflow: hidden; border: 1px solid #263b4f; border-radius: 22px;
+            padding: 34px 38px; margin-bottom: 24px; background: #101e2c; }
+        .hero-kicker { color:#65e2ce; text-transform:uppercase; letter-spacing:.18em; font-size:.73rem; font-weight:700; }
+        .hero h1 { color:#f6f9fc; font-size:clamp(2rem,4vw,3.3rem); line-height:1.1; margin:12px 0; letter-spacing:-.04em; }
+        .hero p { color:#a7b9c9; margin:0; max-width:700px; font-size:1rem; }
+        .hero-meta { display:flex; flex-wrap:wrap; gap:10px; margin-top:22px; }
+        .hero-chip { color:#c4d7df; background:#ffffff0a; border:1px solid #ffffff18; border-radius:99px; padding:6px 11px; font-size:.75rem; }
+        div[data-testid="stMetric"] { min-height:135px; background:#152435 !important; border:1px solid #2b3c4d !important; border-radius:16px !important; box-shadow:none !important; }
+        div[data-testid="stMetricValue"] { letter-spacing:-.04em; }
+        div[data-testid="stMetricLabel"] { color:#a9bccb !important; }
+        .custom-card { background:#111f2e !important; border:1px solid #293c4b !important; border-radius:15px !important; padding:18px !important; line-height:1.9; box-shadow:none !important; }
+        .custom-card:hover { border-color:#52d6c1 !important; box-shadow:none !important; }
+        div[data-testid="stButton"] button { border-radius:10px; border:1px solid #3c766f; color:#b9fff0; background:#193a39; font-weight:700; }
+        div[data-testid="stRadio"] > div { gap:.7rem; }
+        div[data-testid="stRadio"] label { background:#142230; border:1px solid #2a3d4b; padding:.45rem .8rem; border-radius:10px; }
+        h2,h3 { letter-spacing:-.025em; }
+        hr { border-color:#2a3b4c !important; }
+        @media (max-width: 700px) { .hero { padding:24px 20px; } .hero h1 { font-size:2rem; } }
         .stApp {
             background-color: #030712;
             color: #f3f4f6;
@@ -48,7 +70,6 @@ st.markdown("""
             border: 1px solid #1f2937;
             margin-bottom: 12px;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
-            transition: all 0.3s ease;
         }
         .custom-card:hover {
             border-color: #ef4444;
@@ -57,18 +78,40 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🌍 Global Deprem İstihbarat ve Analiz Paneli")
-st.markdown("USGS (Amerikan Jeoloji Araştırmaları Kurumu) canlı akış verileriyle güçlendirilmiş profesyonel gözlem merkezi.")
+st.markdown("""
+<div class="hero">
+    <div class="hero-kicker">● &nbsp; USGS VERİLERİ · SON 24 SAAT</div>
+    <h1>Global Deprem<br>İzleme Paneli</h1>
+    <p>Son 24 saatte kaydedilen depremleri bölge, büyüklük ve derinliğe göre inceleyin.</p>
+    <div class="hero-meta"><span class="hero-chip">🌐 Küresel gözlem</span><span class="hero-chip">◷ Türkiye saati</span><span class="hero-chip">◈ USGS kaynağı</span></div>
+</div>
+""", unsafe_allow_html=True)
 
 # 3. Veriyi Önbelleğe Alarak Çekme
 @st.cache_data(ttl=600)
 def veri_yukle():
-    return deprem_verilerini_getir()
+    veri = deprem_verilerini_getir()
+    if veri is None:
+        raise RuntimeError("USGS verilerine ula\u015f\u0131lamad\u0131.")
+    return veri, pd.Timestamp.now(tz="UTC").tz_convert("Europe/Istanbul")
 
-df = veri_yukle()
+if st.sidebar.button("\U0001f504 Verileri Yenile"):
+    veri_yukle.clear()
 
-if df is None or df.empty:
-    st.error("Veri yüklenirken bir hata oluştu!")
+try:
+    df, cekilme_zamani = veri_yukle()
+    st.sidebar.caption(
+        "Son veri \u00e7ekimi: " + cekilme_zamani.strftime("%d.%m.%Y %H:%M:%S")
+        + " (T\u00fcrkiye saati)"
+    )
+    st.sidebar.caption("Veriler 10 dakika \u00f6nbellekte tutulur.")
+except RuntimeError:
+    df = None
+
+if df is None:
+    st.error("USGS verilerine şu anda ulaşılamıyor. İnternet bağlantınızı kontrol edip 'Verileri Yenile' düğmesine basın.")
+elif df.empty:
+    st.info("USGS son 24 saat için görüntülenebilir bir deprem kaydı döndürmedi. Daha sonra yeniden deneyin.")
 else:
     # 4. Sol Menü (Filtreleme Alanı)
     st.sidebar.header("🔍 Kontrol & Filtre Masası")
@@ -79,34 +122,55 @@ else:
     min_mag = float(df["buyukluk"].min())
     max_mag = float(df["buyukluk"].max())
     
-    secilen_buyukluk = st.sidebar.slider(
-        "Minimum Deprem Büyüklüğü (Mag)",
-        min_value=min_mag,
-        max_value=max_mag,
-        value=float(min_mag)
-    )
+    if min_mag == max_mag:
+        secilen_buyukluk = min_mag
+        st.sidebar.caption(f"Kayıtlardaki büyüklük: {min_mag:.1f}")
+    else:
+        secilen_buyukluk = st.sidebar.slider(
+            "Minimum Deprem Büyüklüğü (Mag)",
+            min_value=min_mag,
+            max_value=max_mag,
+            value=min_mag
+        )
     
-    # Filtreleme Mantığı
-    df_filtered = df[df["buyukluk"] >= secilen_buyukluk]
-    
-    if secilen_bolge == "Türkiye ve Çevresi":
-        df_filtered = df_filtered[
-            (df_filtered["enlem"] >= 34.0) & (df_filtered["enlem"] <= 45.0) &
-            (df_filtered["boylam"] >= 25.0) & (df_filtered["boylam"] <= 45.0)
-        ]
-    elif secilen_bolge == "Amerika (USA)":
-        df_filtered = df_filtered[df_filtered["yer"].str.contains("CA|California|Nevada|Oregon|Washington|Hawaii|WY|ID", case=False, na=False)]
-    elif secilen_bolge == "Alaska":
-        df_filtered = df_filtered[df_filtered["yer"].str.contains("Alaska|Aleutian", case=False, na=False)]
-    elif secilen_bolge == "Japonya ve Asya Pasifik":
-        df_filtered = df_filtered[df_filtered["yer"].str.contains("Japan|Fiji|Tonga|Indonesia|Philippines|New Zealand|Kamchatka", case=False, na=False)]
-    elif secilen_bolge == "Güney Amerika":
-        df_filtered = df_filtered[df_filtered["yer"].str.contains("Chile|Peru|Argentina|Colombia|Ecuador", case=False, na=False)]
+        # Seçilen minimum büyüklüğe göre filtrele.
+    df_filtered = df[df["buyukluk"] >= secilen_buyukluk].copy()
 
-    # 5. Kritik Alarm Sistemi
+    # Bölgeleri enlem ve boylam sınırlarıyla filtrele.
+    bolge_sinirlari = {
+        "Türkiye ve Çevresi": (34.0, 45.0, 25.0, 45.0),
+        "Amerika (USA)": (24.0, 50.0, -125.0, -66.0),
+        "Güney Amerika": (-56.0, 13.0, -82.0, -34.0),
+    }
+
+    if secilen_bolge in bolge_sinirlari:
+        min_enlem, max_enlem, min_boylam, max_boylam = (
+            bolge_sinirlari[secilen_bolge]
+        )
+
+        df_filtered = df_filtered[
+            df_filtered["enlem"].between(min_enlem, max_enlem)
+            & df_filtered["boylam"].between(min_boylam, max_boylam)
+        ]
+    elif secilen_bolge == "Alaska":
+        # Aleut Adaları tarih çizgisinin iki tarafına da uzanır.
+        df_filtered = df_filtered[
+            df_filtered["enlem"].between(51.0, 72.0)
+            & (df_filtered["boylam"].between(-180.0, -130.0)
+               | df_filtered["boylam"].between(170.0, 180.0))
+        ]
+    elif secilen_bolge == "Japonya ve Asya Pasifik":
+        df_filtered = df_filtered[
+            df_filtered["enlem"].between(-50.0, 60.0)
+            & (df_filtered["boylam"].between(95.0, 180.0)
+               | df_filtered["boylam"].between(-180.0, -170.0))
+        ]
+    # Seçilen kayıtlar için özet; deprem tahmini veya erken uyarı değildir.
     buyuk_depremler = df_filtered[df_filtered["buyukluk"] >= 4.5]
     if not buyuk_depremler.empty:
-        st.warning(f"⚠️ KRİTİK UYARI: Seçilen kriterlerde {len(buyuk_depremler)} adet 4.5 büyüklüğü veya üzerinde deprem tespit edildi!")
+        st.info(f"Son 24 saatte, seçilen filtrelerde 4.5 ve üzeri büyüklükte {len(buyuk_depremler)} deprem kaydedildi.")
+
+    st.caption("Kaynak: USGS · Son 24 saat · Saatler Türkiye saatine göredir. Bölge sınırları yaklaşık alanları kapsar.")
 
     # 6. Üst Özet Kartları (KPI Metrikleri)
     col1, col2, col3, col4 = st.columns(4)
@@ -117,16 +181,17 @@ else:
         col3.metric("Ortalama Derinlik", f"{df_filtered['derinlik'].mean():.1f} km")
         col4.metric("En Sığ Deprem", f"{df_filtered['derinlik'].min():.1f} km")
     else:
-        col2.metric("En Büyük Deprem", "0 Mag")
-        col3.metric("Ortalama Derinlik", "0 km")
-        col4.metric("En Sığ Deprem", "0 km")
+        col2.metric("En Büyük Deprem", "—")
+        col3.metric("Ortalama Derinlik", "—")
+        col4.metric("En Sığ Deprem", "—")
 
     st.divider()
 
     # 7. Sekme Yapısı
-    sekme1, sekme2 = st.tabs(["🌐 Canlı Küresel Harita & Radar", "📈 Gelişmiş Analitik Grafikler"])
+    gorunumler = ["🌐 Canlı Küresel Harita & Radar", "📈 Gelişmiş Analitik Grafikler"]
+    secilen_gorunum = st.radio("Görünüm", gorunumler, horizontal=True, label_visibility="collapsed")
 
-    with sekme1:
+    if secilen_gorunum == gorunumler[0]:
         if df_filtered.empty:
             st.info("Seçilen bölge ve kriterlere uygun deprem bulunamadı.")
         else:
@@ -136,7 +201,7 @@ else:
                 st.subheader("🌐 Canlı ve Dikkat Çekici Deprem Radarı")
                 
                 df_map = df_filtered.copy()
-                df_map["buyukluk_gorsel"] = df_map["buyukluk"].apply(lambda x: max(x, 0.4))
+                df_map["buyukluk_gorsel"] = df_map["buyukluk"].clip(lower=0.4)
                 
                 fig_map = px.scatter_geo(
                     df_map,
@@ -159,7 +224,7 @@ else:
                     showland=True, landcolor="#1e293b",
                     showocean=True, oceancolor="#030712",
                     showcountries=True, countrycolor="#334155",
-                    showsubunits=True, subunitcolor="#1e293b"
+                    showsubunits=False
                 )
                 
                 fig_map.update_layout(
@@ -173,8 +238,8 @@ else:
                 st.plotly_chart(fig_map, width='stretch')
 
             with col_bilgi:
-                st.subheader("⚡ Son Büyük Sarsıntılar (Canlı Akış)")
-                st.markdown("En yüksek şiddetli depremlerin kritik künyesi:")
+                st.subheader("⚡ En Büyük Depremler")
+                st.caption("Seçilen kayıtlar içinde büyüklüğe göre ilk 5 deprem")
                 
                 en_buyukler = df_filtered.sort_values(by="buyukluk", ascending=False).head(5)
                 for idx, row in en_buyukler.iterrows():
@@ -183,7 +248,7 @@ else:
                     # Hatalı parametre (unsafe_alert) temizlendi, sadece unsafe_allow_html kaldı
                     st.markdown(f"""
                     <div class="custom-card">
-                        📍 <b>Konum:</b> {row['yer']}<br>
+                        📍 <b>Konum:</b> {escape(str(row['yer']))}<br>
                         ⚡ <b>Büyüklük:</b> <span style="color: #ef4444; font-weight: bold; font-size: 1.1rem;">{row['buyukluk']} Mag 🔴</span><br>
                         🕒 <b>Zaman:</b> {temiz_zaman}<br>
                         🌊 <b>Derinlik:</b> {row['derinlik']} km<br>
@@ -191,7 +256,7 @@ else:
                     </div>
                     """, unsafe_allow_html=True)
 
-    with sekme2:
+    if secilen_gorunum == gorunumler[1]:
         if df_filtered.empty:
             st.info("Grafik oluşturulacak veri bulunamadı.")
         else:
@@ -203,7 +268,7 @@ else:
                 st.plotly_chart(fig_mag, width='stretch')
             
             with col_g2:
-                st.subheader("Derinlik / Şiddet Matrisi")
+                st.subheader("Derinlik / Büyüklük")
                 fig_depth = px.scatter(df_filtered, x="buyukluk", y="derinlik", color="buyukluk", color_continuous_scale="Reds", labels={"buyukluk": "Büyüklük", "derinlik": "Derinlik (km)"})
                 fig_depth.update_layout(paper_bgcolor='#030712', plot_bgcolor='#030712', font=dict(color='white'), height=400)
                 st.plotly_chart(fig_depth, width='stretch')

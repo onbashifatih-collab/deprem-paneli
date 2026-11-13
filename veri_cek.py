@@ -1,39 +1,54 @@
-import requests
 import pandas as pd
+import requests
+
+USGS_URL = (
+    "https://earthquake.usgs.gov/earthquakes/feed/"
+    "v1.0/summary/all_day.geojson"
+)
+
 
 def deprem_verilerini_getir():
-    # Doğru USGS GeoJSON uç noktası (Çoğul olan 'earthquakes' kelimesiyle)
-    url = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson"
-    
-    print("🌍 USGS API'sinden canlı deprem verileri çekiliyor...")
-    response = requests.get(url)
-    
-    if response.status_code != 200:
-        print("❌ Veri çekilemedi! Hata kodu:", response.status_code)
+    try:
+        # Bağlantı en fazla 15 saniye bekler.
+        response = requests.get(USGS_URL, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+
+        depremler = []
+
+        for feature in data.get("features", []):
+            props = feature.get("properties") or {}
+            geometry = feature.get("geometry") or {}
+            coords = geometry.get("coordinates") or []
+
+            # Harita ve grafikler için gerekli bilgiler eksikse kaydı atla.
+            if len(coords) < 3 or props.get("mag") is None:
+                continue
+
+            depremler.append({
+                "yer": props.get("place") or "Konum bilinmiyor",
+                "buyukluk": props["mag"],
+                "zaman": props.get("time"),
+                "detay_url": props.get("url") or "",
+                "boylam": coords[0],
+                "enlem": coords[1],
+                "derinlik": coords[2],
+            })
+
+        df = pd.DataFrame(depremler)
+        if not df.empty:
+            df["zaman"] = pd.to_datetime(
+                df["zaman"], unit="ms", utc=True, errors="coerce"
+            ).dt.tz_convert("Europe/Istanbul")
+        return df
+
+    except (requests.RequestException, ValueError) as hata:
+        print(f"USGS verileri alınamadı: {hata}")
         return None
-        
-    data = response.json()
-    depremler = []
-    
-    for feature in data["features"]:
-        props = feature["properties"]
-        coords = feature["geometry"]["coordinates"] # [boylam, enlem, derinlik]
-        
-        depremler.append({
-            "yer": props["place"],
-            "buyukluk": props["mag"],
-            "zaman": pd.to_datetime(props["time"], unit="ms"),
-            "detay_url": props["url"],
-            "boylam": coords[0],
-            "enlem": coords[1],
-            "derinlik": coords[2]
-        })
-        
-    df = pd.DataFrame(depremler)
-    print(f"✅ Başarıyla {len(df)} adet güncel deprem verisi çekildi!")
-    return df
+
 
 if __name__ == "__main__":
     df = deprem_verilerini_getir()
+
     if df is not None:
         print(df.head())
